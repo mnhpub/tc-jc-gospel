@@ -39,3 +39,18 @@ button:disabled { cursor: not-allowed; opacity: .5; }
     text-align: center;
   }
 }
+
+.tcg-evidence:not(:disabled):hover { border-color: #4b648e !important; }
+.tcg-evidence:focus-visible,
+.tcg-link:focus-visible { outline: 2px solid #2f5aa8; outline-offset: 2px; }
+
+.tcg-link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #2f5aa8;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

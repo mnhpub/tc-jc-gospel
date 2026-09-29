@@ -20,7 +20,9 @@ npm run build
 ## Current features
 
 - Gospel narrative switching
-- event-stream replay
+- event-stream replay with provenance highlighting (each event lights up the quotation it was admitted from)
+- before/after state diff for every replayed event
+- interactive audit graph: select any node to trace its lineage from verse → extraction → admitted event → rule/authorization → interpretation → application
 - aggregate/state replay snapshots
 - epistemic lanes
 - provenance expansion

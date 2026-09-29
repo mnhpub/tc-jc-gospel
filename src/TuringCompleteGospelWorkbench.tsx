@@ -1,4 +1,10 @@
-import React, { useMemo, useState } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   MARK_5_JAIRUS_NARRATIVE,
@@ -10,6 +16,8 @@ import {
   MARK_5_GRAPH,
   GOOD_SAMARITAN_GRAPH,
   GOOD_SAMARITAN_LENSED_GRAPH,
+  GOOD_SAMARITAN_APPLIED_GRAPH,
+  GOOD_SAMARITAN_RULE_BINDINGS,
   PRODIGAL_GRAPH,
   PRODIGAL_LENSED_GRAPH,
   SOWER_GRAPH,
@@ -29,11 +37,23 @@ import {
   replaySower,
   replayTalents,
   replayLostSheep,
+  withRuleAuthorizationNodes,
   type EpistemicLayer,
+  type GraphNode,
   type Narrative,
   type NarrativeGraph,
   type ParableAlgebra,
 } from "./turing-complete-gospel-of-jesus-christ";
+import {
+  admissionForExtraction,
+  diffStates,
+  eventIndexForExtraction,
+  extractionIdsForEvent,
+  flattenState,
+  traceLineage,
+  verseLabel,
+  withProvenanceLayers,
+} from "./provenance";
 
 type NarrativeKey =
   | "mark-5"
@@ -52,6 +72,8 @@ type RegistryEntry = {
   narrative: Narrative;
   canonical: NarrativeGraph;
   lensed: NarrativeGraph;
+  /** Graph shown in the Audit view; defaults to `lensed`. */
+  audit?: NarrativeGraph;
   algebra?: ParableAlgebra;
 };
 
@@ -71,6 +93,11 @@ const REGISTRY: Record<NarrativeKey, RegistryEntry> = {
     narrative: GOOD_SAMARITAN_NARRATIVE,
     canonical: GOOD_SAMARITAN_GRAPH,
     lensed: GOOD_SAMARITAN_LENSED_GRAPH,
+    audit: withRuleAuthorizationNodes(
+      GOOD_SAMARITAN_APPLIED_GRAPH,
+      GOOD_SAMARITAN_RULE_BINDINGS,
+      { disabledRuleIds: new Set(), disputedAuthorizationIds: new Set() }
+    ),
     algebra: PARABLE_ALGEBRA.find(
       (x) => x.narrativeId === GOOD_SAMARITAN_NARRATIVE.id
     ),
@@ -143,16 +170,6 @@ const ink = "#172033";
 const line = "#d7dde6";
 const soft = "#f7f9fc";
 
-function sourceLabel(p: any): string {
-  const s = p?.source;
-  if (!s) return "Source unavailable";
-  const range =
-    s.verseEnd && s.verseEnd !== s.verseStart
-      ? `${s.verseStart}–${s.verseEnd}`
-      : String(s.verseStart);
-  return `${s.work} ${s.chapter}:${range}`;
-}
-
 function replaySnapshot(
   key: NarrativeKey,
   events: readonly any[]
@@ -171,24 +188,6 @@ function replaySnapshot(
     case "lost-sheep":
       return replayLostSheep(events);
   }
-}
-
-function flattenSnapshot(
-  value: unknown,
-  prefix = ""
-): Array<[string, string]> {
-  if (value === null || value === undefined) return [];
-  if (typeof value !== "object") return [[prefix || "value", String(value)]];
-  const out: Array<[string, string]> = [];
-  for (const [key, next] of Object.entries(value as Record<string, unknown>)) {
-    const name = prefix ? `${prefix}.${key}` : key;
-    if (next && typeof next === "object" && !Array.isArray(next)) {
-      out.push(...flattenSnapshot(next, name));
-    } else if (!Array.isArray(next)) {
-      out.push([name, String(next)]);
-    }
-  }
-  return out.slice(0, 20);
 }
 
 function roleRows(entry: RegistryEntry): Array<[string, string]> {
@@ -228,6 +227,19 @@ function normalizedRole(name: string): string {
   return map[name] ?? name;
 }
 
+const eyebrow: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 700,
+  letterSpacing: ".08em",
+  color: muted,
+  textTransform: "uppercase",
+};
+
+const current = "#2f5aa8";
+const currentSoft = "#e8f0ff";
+const replayedSoft = "#f3f7ff";
+const replayedLine = "#b9c9e8";
+
 function ReaderView({
   entry,
   replayIndex,
@@ -237,9 +249,30 @@ function ReaderView({
   replayIndex: number;
   setReplayIndex: (n: number) => void;
 }) {
-  const events = entry.narrative.events;
-  const visible = events.slice(0, replayIndex);
-  const snapshot = replaySnapshot(entry.key, visible);
+  const narrative = entry.narrative;
+  const events = narrative.events;
+  const currentEvent = replayIndex > 0 ? events[replayIndex - 1] : undefined;
+
+  const { snapshot, changes, currentExtractions, replayedExtractions } =
+    useMemo(() => {
+      const visible = events.slice(0, replayIndex);
+      const after = replaySnapshot(entry.key, visible);
+      const before = replaySnapshot(entry.key, events.slice(0, Math.max(0, replayIndex - 1)));
+      const replayed = new Set<string>();
+      for (const event of visible) {
+        for (const id of extractionIdsForEvent(narrative, event)) replayed.add(id);
+      }
+      return {
+        snapshot: after,
+        changes: replayIndex > 0 ? diffStates(before, after) : [],
+        currentExtractions: currentEvent
+          ? extractionIdsForEvent(narrative, currentEvent)
+          : new Set<string>(),
+        replayedExtractions: replayed,
+      };
+    }, [entry.key, narrative, events, replayIndex, currentEvent]);
+
+  const changedKeys = new Set(changes.map((c) => c.key));
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -252,76 +285,109 @@ function ReaderView({
         className="tcg-two-column"
       >
         <section style={{ ...panel, padding: 18 }}>
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: ".08em",
-              color: muted,
-              textTransform: "uppercase",
-            }}
-          >
-            Narrative evidence
-          </div>
-          <h2 style={{ margin: "6px 0 14px", fontSize: 21 }}>
-            {entry.title}
-          </h2>
+          <div style={eyebrow}>Narrative evidence</div>
+          <h2 style={{ margin: "6px 0 4px", fontSize: 21 }}>{entry.title}</h2>
+          <p style={{ margin: "0 0 14px", fontSize: 12, color: muted }}>
+            Each quotation is highlighted when the event admitted from it is
+            replayed. Select a quotation to jump to its event.
+          </p>
 
           <div style={{ display: "grid", gap: 8 }}>
-            {entry.narrative.extractions.length === 0 ? (
+            {narrative.extractions.length === 0 ? (
               <p style={{ color: muted }}>
                 This seed has not yet been expanded into visible extraction
                 spans.
               </p>
             ) : (
-              entry.narrative.extractions.map((x, index) => (
-                <div
-                  key={x.id}
-                  style={{
-                    padding: "11px 12px",
-                    borderRadius: 8,
-                    background: index < replayIndex ? "#f3f7ff" : soft,
-                    border: `1px solid ${
-                      index < replayIndex ? "#b9c9e8" : line
-                    }`,
-                  }}
-                >
-                  <div
+              narrative.extractions.map((x) => {
+                const admission = admissionForExtraction(narrative, x);
+                const eventIndex = eventIndexForExtraction(narrative, x);
+                const isCurrent = currentExtractions.has(x.id);
+                const isReplayed = !isCurrent && replayedExtractions.has(x.id);
+                const linked = eventIndex >= 0;
+                const status = isCurrent
+                  ? "current event"
+                  : isReplayed
+                    ? "replayed"
+                    : linked
+                      ? `event ${eventIndex + 1}`
+                      : admission?.outcome === "admitted-claim"
+                        ? "admitted as claim, not an event"
+                        : admission
+                          ? admission.outcome
+                          : "not admitted";
+
+                return (
+                  <button
+                    type="button"
+                    key={x.id}
+                    className="tcg-evidence"
+                    disabled={!linked}
+                    aria-current={isCurrent ? "step" : undefined}
+                    onClick={() => setReplayIndex(eventIndex + 1)}
                     style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: 12,
-                      fontSize: 12,
-                      color: muted,
+                      textAlign: "left",
+                      font: "inherit",
+                      color: ink,
+                      padding: "11px 12px",
+                      borderRadius: 8,
+                      cursor: linked ? "pointer" : "default",
+                      opacity: 1,
+                      background: isCurrent
+                        ? currentSoft
+                        : isReplayed
+                          ? replayedSoft
+                          : soft,
+                      border: `1px solid ${
+                        isCurrent ? current : isReplayed ? replayedLine : line
+                      }`,
+                      boxShadow: isCurrent ? `inset 3px 0 0 ${current}` : "none",
                     }}
                   >
-                    <span>{sourceLabel(x.source)}</span>
-                    <span>{x.modality}</span>
-                  </div>
-                  <div style={{ marginTop: 5, fontSize: 14 }}>
-                    “{x.sourceSpan}”
-                  </div>
-                  <div style={{ marginTop: 5, fontSize: 12, color: muted }}>
-                    extraction → {x.predicate}
-                  </div>
-                </div>
-              ))
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        fontSize: 12,
+                        color: muted,
+                      }}
+                    >
+                      <span>{verseLabel(x.source)}</span>
+                      <span>{x.modality}</span>
+                    </div>
+                    <div style={{ marginTop: 5, fontSize: 14 }}>
+                      “{x.sourceSpan}”
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        marginTop: 5,
+                        fontSize: 12,
+                        color: muted,
+                      }}
+                    >
+                      <span>extraction → {x.predicate}</span>
+                      <span
+                        style={{
+                          color: isCurrent ? current : muted,
+                          fontWeight: isCurrent ? 700 : 400,
+                        }}
+                      >
+                        {status}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })
             )}
           </div>
         </section>
 
         <section style={{ ...panel, padding: 18 }}>
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: ".08em",
-              color: muted,
-              textTransform: "uppercase",
-            }}
-          >
-            Replay state
-          </div>
+          <div style={eyebrow}>Replay state</div>
           <h3 style={{ margin: "6px 0 10px" }}>
             Step {replayIndex} of {events.length}
           </h3>
@@ -360,85 +426,158 @@ function ReaderView({
             >
               Next event
             </button>
-            <button type="button" onClick={() => setReplayIndex(events.length)}>
+            <button
+              type="button"
+              onClick={() => setReplayIndex(events.length)}
+              disabled={replayIndex === events.length}
+            >
               Replay all
+            </button>
+            <button
+              type="button"
+              onClick={() => setReplayIndex(0)}
+              disabled={replayIndex === 0}
+            >
+              Reset
             </button>
           </div>
 
-          {visible.length > 0 && (
+          {currentEvent && (
             <div
               style={{
                 padding: 12,
                 borderRadius: 8,
-                background: "#f8fafc",
+                background: currentSoft,
                 marginBottom: 14,
               }}
             >
               <div style={{ fontSize: 11, color: muted }}>CURRENT EVENT</div>
               <div style={{ fontWeight: 700, marginTop: 3 }}>
-                {visible[visible.length - 1].operation}
+                {currentEvent.operation}
               </div>
               <div style={{ color: muted, fontSize: 12, marginTop: 3 }}>
-                {sourceLabel(visible[visible.length - 1].provenance?.[0])}
+                {verseLabel(currentEvent.provenance?.[0])}
               </div>
             </div>
           )}
 
           <div style={{ display: "grid", gap: 5 }}>
-            {flattenSnapshot(snapshot).map(([key, value]) => (
-              <div
-                key={key}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "minmax(0,1fr) auto",
-                  gap: 12,
-                  fontSize: 12,
-                  borderBottom: `1px solid ${soft}`,
-                  paddingBottom: 4,
-                }}
-              >
-                <span style={{ color: muted }}>{key}</span>
-                <span style={{ textAlign: "right", fontWeight: 600 }}>
-                  {value}
-                </span>
-              </div>
-            ))}
+            {flattenState(snapshot).map(([key, value]) => {
+              const changed = changedKeys.has(key);
+              return (
+                <div
+                  key={key}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0,1fr) auto",
+                    gap: 12,
+                    fontSize: 12,
+                    borderBottom: `1px solid ${soft}`,
+                    padding: "2px 4px 4px",
+                    borderRadius: 4,
+                    background: changed ? currentSoft : "transparent",
+                  }}
+                >
+                  <span style={{ color: muted }}>{key}</span>
+                  <span
+                    style={{
+                      textAlign: "right",
+                      fontWeight: 600,
+                      color: changed ? current : ink,
+                    }}
+                  >
+                    {value}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </section>
       </div>
 
-      <section style={{ ...panel, padding: 18 }}>
+      <section style={{ ...panel, padding: 18 }} aria-live="polite">
+        <div style={eyebrow}>State transition</div>
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "1fr auto 1fr auto 1fr",
             gap: 10,
             alignItems: "stretch",
+            marginTop: 10,
           }}
           className="tcg-transition-grid"
         >
           <div style={{ padding: 14, background: soft, borderRadius: 8 }}>
-            <div style={{ fontSize: 11, color: muted }}>BEFORE</div>
-            <div style={{ fontWeight: 700, marginTop: 4 }}>
-              state at step {Math.max(0, replayIndex - 1)}
+            <div style={{ fontSize: 11, color: muted }}>
+              BEFORE · step {Math.max(0, replayIndex - 1)}
             </div>
+            <ChangeList changes={changes} side="before" idle={!currentEvent} />
           </div>
           <div style={{ alignSelf: "center", color: muted }}>→</div>
-          <div style={{ padding: 14, background: "#f3f7ff", borderRadius: 8 }}>
+          <div style={{ padding: 14, background: currentSoft, borderRadius: 8 }}>
             <div style={{ fontSize: 11, color: muted }}>EVENT</div>
-            <div style={{ fontWeight: 700, marginTop: 4 }}>
-              {visible.length ? visible[visible.length - 1].operation : "—"}
-            </div>
+            {currentEvent ? (
+              <>
+                <div style={{ fontWeight: 700, marginTop: 4 }}>
+                  {currentEvent.operation}
+                </div>
+                <div style={{ fontSize: 12, color: muted, marginTop: 3 }}>
+                  {currentEvent.kind} ·{" "}
+                  {verseLabel(currentEvent.provenance?.[0])}
+                </div>
+              </>
+            ) : (
+              <div style={{ marginTop: 4, fontSize: 13, color: muted }}>
+                Initial state. Choose <strong>Next event</strong> to apply the
+                first admitted event.
+              </div>
+            )}
           </div>
           <div style={{ alignSelf: "center", color: muted }}>→</div>
           <div style={{ padding: 14, background: soft, borderRadius: 8 }}>
-            <div style={{ fontSize: 11, color: muted }}>AFTER</div>
-            <div style={{ fontWeight: 700, marginTop: 4 }}>
-              state at step {replayIndex}
+            <div style={{ fontSize: 11, color: muted }}>
+              AFTER · step {replayIndex}
             </div>
+            <ChangeList changes={changes} side="after" idle={!currentEvent} />
           </div>
         </div>
+        {currentEvent && changes.length === 0 && (
+          <p style={{ margin: "10px 0 0", fontSize: 12, color: muted }}>
+            This event is recorded in the stream but does not change the
+            modeled aggregate state.
+          </p>
+        )}
       </section>
+    </div>
+  );
+}
+
+function ChangeList({
+  changes,
+  side,
+  idle,
+}: {
+  changes: readonly { key: string; before?: string; after?: string }[];
+  side: "before" | "after";
+  idle: boolean;
+}) {
+  if (idle || changes.length === 0) {
+    return (
+      <div style={{ marginTop: 4, fontSize: 13, color: muted }}>
+        {idle ? "—" : "no modeled change"}
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
+      {changes.map((c) => (
+        <div key={c.key} style={{ fontSize: 12 }}>
+          <span style={{ color: muted }}>{c.key}</span>{" "}
+          <strong style={{ color: side === "after" ? current : ink }}>
+            {(side === "before" ? c.before : c.after) ?? "—"}
+          </strong>
+        </div>
+      ))}
     </div>
   );
 }
@@ -487,6 +626,11 @@ function AuthorityDemo() {
           <h3 style={{ margin: "5px 0 0" }}>
             Same observed action, different fulfillment semantics
           </h3>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: muted }}>
+            Worked example from Jairus's Daughter — “Talitha koum”, Mark
+            5:41–42. It uses this command whichever narrative is selected
+            above.
+          </p>
         </div>
         <label
           style={{
@@ -933,6 +1077,81 @@ function CompareView({
   );
 }
 
+const AUDIT_LANES = [
+  ["text", "TEXT"],
+  ["extraction", "EXTRACTION"],
+  ["admitted", "ADMISSION / EVENT"],
+  ["derived", "STATE / RULE / AUTHORIZATION"],
+  ["interpretive", "INTERPRETATION"],
+  ["application", "APPLICATION"],
+] as const;
+
+const EMPTY_LANE_REASON: Record<EpistemicLayer, string> = {
+  text: "No source verses are attached to this narrative's extractions yet.",
+  extraction: "No extractions are modeled for this narrative yet.",
+  admitted: "No admitted events, actors, or entities are modeled yet.",
+  derived:
+    "No rules or rule authorizations are bound to this narrative yet, so no derived conclusions appear here.",
+  interpretive: "No interpretive lens has been applied to this narrative yet.",
+  application:
+    "No application is modeled. An interpretation only becomes an application through an explicit, authorized normative bridge.",
+};
+
+type EdgeLine = {
+  id: string;
+  d: string;
+  labelX: number;
+  labelY: number;
+  relation: string;
+};
+
+function edgePath(from: DOMRect, to: DOMRect, origin: DOMRect) {
+  const sx = from.left + from.width / 2 - origin.left;
+  const tx = to.left + to.width / 2 - origin.left;
+  const sCy = from.top + from.height / 2;
+  const tCy = to.top + to.height / 2;
+
+  if (sCy < tCy - 10) {
+    const sy = from.bottom - origin.top;
+    const ty = to.top - origin.top;
+    const my = (sy + ty) / 2;
+    return {
+      d: `M ${sx} ${sy} C ${sx} ${my}, ${tx} ${my}, ${tx} ${ty}`,
+      labelX: (sx + tx) / 2,
+      labelY: my,
+    };
+  }
+  if (sCy > tCy + 10) {
+    const sy = from.top - origin.top;
+    const ty = to.bottom - origin.top;
+    const my = (sy + ty) / 2;
+    return {
+      d: `M ${sx} ${sy} C ${sx} ${my}, ${tx} ${my}, ${tx} ${ty}`,
+      labelX: (sx + tx) / 2,
+      labelY: my,
+    };
+  }
+  // Same lane: arc over the top of both nodes.
+  const sy = from.top - origin.top;
+  const ty = to.top - origin.top;
+  const lift = Math.min(28, 10 + Math.abs(tx - sx) / 8);
+  const cy = Math.min(sy, ty) - lift;
+  return {
+    d: `M ${sx} ${sy} C ${sx} ${cy}, ${tx} ${cy}, ${tx} ${ty}`,
+    labelX: (sx + tx) / 2,
+    labelY: cy + lift / 4,
+  };
+}
+
+function nodeDisplayLabel(node: GraphNode): string {
+  if (node.kind === "command") return `command: ${node.label}`;
+  // Authorization nodes are labelled only by status; name what they authorize.
+  if (node.id.startsWith("authorization:")) {
+    return `${String(node.payloadId).replace(/^Authz-/, "")} · ${node.label}`;
+  }
+  return node.label;
+}
+
 function AuditView({
   entry,
   enabledLayers,
@@ -942,16 +1161,101 @@ function AuditView({
   enabledLayers: Set<EpistemicLayer>;
   toggleLayer: (layer: EpistemicLayer) => void;
 }) {
-  const graph = entry.lensed;
-  const nodes = graph.nodes.filter((n) => enabledLayers.has(n.epistemicLayer));
-  const lanes = [
-    ["text", "TEXT"],
-    ["extraction", "EXTRACTION"],
-    ["admitted", "ADMISSION / EVENT"],
-    ["derived", "STATE / RULE / AUTHORIZATION"],
-    ["interpretive", "INTERPRETATION"],
-    ["application", "APPLICATION"],
-  ] as const;
+  const graph = useMemo(
+    () => withProvenanceLayers(entry.audit ?? entry.lensed, entry.narrative),
+    [entry]
+  );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [lines, setLines] = useState<EdgeLine[]>([]);
+  const [layoutTick, setLayoutTick] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const nodeRefs = useRef(new Map<string, HTMLButtonElement>());
+
+  const nodesById = useMemo(
+    () => new Map(graph.nodes.map((n) => [n.id as string, n])),
+    [graph]
+  );
+  const selected = selectedId ? nodesById.get(selectedId) : undefined;
+  const lineage = useMemo(
+    () => (selectedId ? traceLineage(graph, selectedId) : null),
+    [graph, selectedId]
+  );
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setLayoutTick((t) => t + 1));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container || !lineage) {
+      setLines([]);
+      return;
+    }
+    const origin = container.getBoundingClientRect();
+    const next: EdgeLine[] = [];
+    for (const edge of lineage.edges) {
+      const from = nodeRefs.current.get(edge.source);
+      const to = nodeRefs.current.get(edge.target);
+      if (!from || !to) continue;
+      next.push({
+        id: edge.id,
+        relation: edge.relation,
+        ...edgePath(
+          from.getBoundingClientRect(),
+          to.getBoundingClientRect(),
+          origin
+        ),
+      });
+    }
+    setLines(next);
+  }, [lineage, enabledLayers, layoutTick]);
+
+  const nodeLabel = (id: string) => {
+    const node = nodesById.get(id);
+    return node ? nodeDisplayLabel(node) : id;
+  };
+  const layerRank = (id: string) =>
+    LAYERS.indexOf(nodesById.get(id)?.epistemicLayer ?? "application");
+
+  const pathEdges = lineage
+    ? [...lineage.edges].sort(
+        (a, b) =>
+          layerRank(a.source) - layerRank(b.source) ||
+          layerRank(a.target) - layerRank(b.target)
+      )
+    : [];
+
+  const selectedExtraction =
+    selected?.epistemicLayer === "extraction"
+      ? entry.narrative.extractions.find((x) => x.id === selected.payloadId)
+      : undefined;
+  const selectedAdmission = selectedExtraction
+    ? admissionForExtraction(entry.narrative, selectedExtraction)
+    : undefined;
+
+  function nodeStyle(node: GraphNode): React.CSSProperties {
+    const isSelected = node.id === selectedId;
+    const inPath = lineage?.nodeIds.has(node.id) ?? false;
+    const dimmed = Boolean(lineage) && !inPath;
+    return {
+      position: "relative",
+      zIndex: 1,
+      minHeight: 0,
+      padding: "6px 8px",
+      borderRadius: 7,
+      border: `1px solid ${isSelected ? current : inPath ? replayedLine : line}`,
+      boxShadow: isSelected ? `0 0 0 2px ${currentSoft}` : "none",
+      fontSize: 11,
+      fontWeight: isSelected ? 700 : 400,
+      color: dimmed ? "#a3adbd" : ink,
+      background: isSelected ? currentSoft : inPath ? replayedSoft : "#fff",
+      transition: "color .15s, background .15s",
+    };
+  }
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -965,17 +1269,7 @@ function AuditView({
           }}
         >
           <div>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 700,
-                letterSpacing: ".08em",
-                color: muted,
-                textTransform: "uppercase",
-              }}
-            >
-              Audit projection
-            </div>
+            <div style={eyebrow}>Audit projection</div>
             <h2 style={{ margin: "5px 0 0" }}>
               TEXT → EXTRACTION → ADMISSION → EVENT → STATE → RULE →
               AUTHORIZATION → INTERPRETATION → APPLICATION
@@ -996,11 +1290,77 @@ function AuditView({
         </div>
       </section>
 
-      <section style={{ ...panel, padding: 16, overflowX: "auto" }}>
-        <div style={{ minWidth: 740, display: "grid", gap: 8 }}>
-          {lanes.map(([layer, label]) => {
-            const laneNodes = nodes.filter((n) => n.epistemicLayer === layer);
-            if (!enabledLayers.has(layer as EpistemicLayer)) return null;
+      <section
+        style={{ ...panel, padding: 16, overflowX: "auto" }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setSelectedId(null);
+        }}
+      >
+        <p style={{ margin: "0 0 6px", fontSize: 12, color: muted }}>
+          Select any node to trace everything it depends on and everything
+          derived from it. Press Esc to clear.
+        </p>
+        <div
+          ref={containerRef}
+          style={{ minWidth: 740, display: "grid", gap: 8, position: "relative" }}
+        >
+          <svg
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              pointerEvents: "none",
+              overflow: "visible",
+              zIndex: 0,
+            }}
+          >
+            <defs>
+              <marker
+                id="tcg-arrow"
+                viewBox="0 0 8 8"
+                refX="7"
+                refY="4"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M0,0 L8,4 L0,8 z" fill={current} />
+              </marker>
+            </defs>
+            {lines.map((l) => (
+              <g key={l.id}>
+                <path
+                  d={l.d}
+                  fill="none"
+                  stroke={current}
+                  strokeOpacity={0.55}
+                  strokeWidth={1.5}
+                  markerEnd="url(#tcg-arrow)"
+                />
+                <text
+                  x={l.labelX}
+                  y={l.labelY}
+                  textAnchor="middle"
+                  dy="-3"
+                  fontSize={9}
+                  fill={current}
+                  stroke="#fff"
+                  strokeWidth={3}
+                  paintOrder="stroke"
+                >
+                  {l.relation}
+                </text>
+              </g>
+            ))}
+          </svg>
+
+          {AUDIT_LANES.map(([layer, label]) => {
+            if (!enabledLayers.has(layer)) return null;
+            const laneNodes = graph.nodes.filter(
+              (n) => n.epistemicLayer === layer
+            );
             return (
               <div
                 key={layer}
@@ -1010,7 +1370,7 @@ function AuditView({
                   gap: 12,
                   alignItems: "start",
                   borderBottom: `1px dashed ${line}`,
-                  padding: "10px 0",
+                  padding: "16px 0 10px",
                 }}
               >
                 <div
@@ -1025,22 +1385,29 @@ function AuditView({
                 </div>
                 <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
                   {laneNodes.length === 0 ? (
-                    <span style={{ color: muted, fontSize: 12 }}>—</span>
+                    <span style={{ color: muted, fontSize: 12 }}>
+                      {EMPTY_LANE_REASON[layer]}
+                    </span>
                   ) : (
                     laneNodes.map((node) => (
-                      <span
+                      <button
+                        type="button"
                         key={node.id}
-                        style={{
-                          padding: "6px 8px",
-                          borderRadius: 7,
-                          border: `1px solid ${line}`,
-                          fontSize: 11,
-                          background: "#fff",
+                        ref={(el) => {
+                          if (el) nodeRefs.current.set(node.id, el);
+                          else nodeRefs.current.delete(node.id);
                         }}
-                        title={String(node.payloadId)}
+                        aria-pressed={node.id === selectedId}
+                        onClick={() =>
+                          setSelectedId((cur) =>
+                            cur === node.id ? null : node.id
+                          )
+                        }
+                        style={nodeStyle(node)}
+                        title={`${node.kind} · ${String(node.payloadId)}`}
                       >
-                        {node.label}
-                      </span>
+                        {nodeDisplayLabel(node)}
+                      </button>
                     ))
                   )}
                 </div>
@@ -1048,6 +1415,108 @@ function AuditView({
             );
           })}
         </div>
+      </section>
+
+      <section style={{ ...panel, padding: 18 }} aria-live="polite">
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "baseline",
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={eyebrow}>Provenance trace</div>
+          {selected && (
+            <button type="button" onClick={() => setSelectedId(null)}>
+              Clear selection
+            </button>
+          )}
+        </div>
+
+        {!selected ? (
+          <p style={{ margin: "8px 0 0", fontSize: 13, color: muted }}>
+            Nothing selected. Try an event in the ADMISSION / EVENT lane to see
+            the verse and extraction it was admitted from and the
+            interpretations built on it.
+          </p>
+        ) : (
+          <>
+            <h3 style={{ margin: "6px 0 2px" }}>
+              {nodeDisplayLabel(selected)}
+            </h3>
+            <div style={{ fontSize: 12, color: muted }}>
+              {selected.kind} · {selected.epistemicLayer} layer
+              {selected.sourceRef ? ` · ${selected.sourceRef}` : ""}
+            </div>
+
+            {selectedExtraction && (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: 10,
+                  borderRadius: 8,
+                  background: soft,
+                  fontSize: 13,
+                }}
+              >
+                “{selectedExtraction.sourceSpan}”
+                {selectedAdmission && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: muted }}>
+                    Admission: {selectedAdmission.outcome} ·{" "}
+                    {selectedAdmission.epistemicStatus} ·{" "}
+                    {selectedAdmission.authentication.basis}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {pathEdges.length === 0 ? (
+              <p style={{ margin: "10px 0 0", fontSize: 12, color: muted }}>
+                This node has no recorded links to other nodes.
+              </p>
+            ) : (
+              <ol
+                style={{
+                  margin: "10px 0 0",
+                  paddingLeft: 20,
+                  display: "grid",
+                  gap: 4,
+                  fontSize: 12,
+                }}
+              >
+                {pathEdges.map((edge) => (
+                  <li key={edge.id}>
+                    <button
+                      type="button"
+                      className="tcg-link"
+                      onClick={() => setSelectedId(edge.source)}
+                    >
+                      {nodeLabel(edge.source)}
+                    </button>{" "}
+                    <span style={{ color: muted }}>—{edge.relation}→</span>{" "}
+                    <button
+                      type="button"
+                      className="tcg-link"
+                      onClick={() => setSelectedId(edge.target)}
+                    >
+                      {nodeLabel(edge.target)}
+                    </button>
+                    {!enabledLayers.has(
+                      nodesById.get(edge.source)?.epistemicLayer ?? "text"
+                    ) ||
+                    !enabledLayers.has(
+                      nodesById.get(edge.target)?.epistemicLayer ?? "text"
+                    ) ? (
+                      <span style={{ color: muted }}> (hidden layer)</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </>
+        )}
       </section>
 
       <section style={{ ...panel, padding: 18 }}>
@@ -1215,6 +1684,7 @@ export default function TuringCompleteGospelWorkbench() {
 
       {viewMode === "audit" && (
         <AuditView
+          key={narrativeKey}
           entry={entry}
           enabledLayers={enabledLayers}
           toggleLayer={toggleLayer}
