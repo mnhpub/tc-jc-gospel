@@ -39,11 +39,15 @@ import {
   replayLostSheep,
   withRuleAuthorizationNodes,
   type EpistemicLayer,
+  type Event,
   type GraphNode,
   type Narrative,
   type NarrativeGraph,
   type ParableAlgebra,
 } from "./turing-complete-gospel-of-jesus-christ";
+import StoryView from "./StoryView";
+import SourcesView from "./SourcesView";
+import { SHAPE_STEPS, STUDY_GUIDES } from "./studyGuide";
 import {
   admissionForExtraction,
   diffStates,
@@ -715,16 +719,120 @@ function AuthorityDemo() {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* STORY MODE: PATTERN AND COMPARE                                             */
+/* -------------------------------------------------------------------------- */
+
+function storyTitle(entry: RegistryEntry) {
+  const [title, reference = ""] = entry.title.split(" — ");
+  return { title, reference };
+}
+
+function PatternView({ entry }: { entry: RegistryEntry }) {
+  const shape = STUDY_GUIDES[entry.key].shape;
+  const { title, reference } = storyTitle(entry);
+  return (
+    <div className="stack">
+      <section className="card">
+        <div className="eyebrow">The shape of the story</div>
+        <h2 className="story-title">{title}</h2>
+        <p className="muted">
+          Jesus's stories often move the same way: a situation, something
+          happens, someone responds, something changes, and there is a result.
+          Here is {reference} in those five steps.
+        </p>
+        <ol className="shape">
+          {SHAPE_STEPS.map(([key, label], i) => (
+            <li key={key} className={i === SHAPE_STEPS.length - 1 ? "shape-end" : ""}>
+              <span className="shape-label">{label}</span>
+              <span className="shape-text">{shape[key]}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
+      <p className="muted small center">
+        Open <strong>Compare</strong> to set this story beside another one.
+      </p>
+    </div>
+  );
+}
+
+function PlainCompare({
+  left,
+  right,
+  rightKey,
+  setRightKey,
+}: {
+  left: RegistryEntry;
+  right: RegistryEntry;
+  rightKey: NarrativeKey;
+  setRightKey: (key: NarrativeKey) => void;
+}) {
+  const a = STUDY_GUIDES[left.key].shape;
+  const b = STUDY_GUIDES[right.key].shape;
+  return (
+    <div className="stack">
+      <section className="card">
+        <div className="eyebrow">Stories side by side</div>
+        <h2 className="story-title">Different stories, the same shape</h2>
+        <p className="muted">
+          Put two stories next to each other and look for what they share.
+        </p>
+        <label className="compare-picker">
+          <span>
+            <strong>{storyTitle(left).title}</strong> compared with
+          </span>
+          <select
+            value={rightKey}
+            onChange={(e) => setRightKey(e.target.value as NarrativeKey)}
+          >
+            {ALL_KEYS.filter((key) => key !== left.key).map((key) => (
+              <option key={key} value={key}>
+                {storyTitle(REGISTRY[key]).title}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+
+      <div className="compare-grid" role="table" aria-label="Story comparison">
+        <div className="compare-head" role="row">
+          <span role="columnheader" />
+          <span role="columnheader">{storyTitle(left).title}</span>
+          <span role="columnheader">{storyTitle(right).title}</span>
+        </div>
+        {SHAPE_STEPS.map(([key, label]) => (
+          <div key={key} className="compare-row" role="row">
+            <span className="compare-label" role="rowheader">{label}</span>
+            <span className="compare-cell" role="cell">
+              <em>{storyTitle(left).title}</em>
+              {a[key]}
+            </span>
+            <span className="compare-cell" role="cell">
+              <em>{storyTitle(right).title}</em>
+              {b[key]}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StructureView({
   entry,
+  plain,
   showMathRoles,
   setShowMathRoles,
 }: {
   entry: RegistryEntry;
+  plain: boolean;
   showMathRoles: boolean;
   setShowMathRoles: (next: boolean) => void;
 }) {
   const roles = roleRows(entry);
+
+  if (plain) return <PatternView entry={entry} />;
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -877,10 +985,12 @@ function StructureView({
 }
 
 function CompareView({
+  plain,
   leftKey,
   rightKey,
   setRightKey,
 }: {
+  plain: boolean;
   leftKey: NarrativeKey;
   rightKey: NarrativeKey;
   setRightKey: (key: NarrativeKey) => void;
@@ -895,6 +1005,17 @@ function CompareView({
       rightRoles.find(([candidate]) => candidate === role)?.[1] ?? "—";
     return [role, leftValue, rightValue] as const;
   });
+
+  if (plain) {
+    return (
+      <PlainCompare
+        left={left}
+        right={right}
+        rightKey={rightKey}
+        setRightKey={setRightKey}
+      />
+    );
+  }
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -1152,19 +1273,37 @@ function nodeDisplayLabel(node: GraphNode): string {
   return node.label;
 }
 
+function auditGraph(entry: RegistryEntry): NarrativeGraph {
+  return withProvenanceLayers(entry.audit ?? entry.lensed, entry.narrative);
+}
+
 function AuditView({
-  entry,
-  enabledLayers,
-  toggleLayer,
+  plain,
+  ...props
 }: {
+  plain: boolean;
   entry: RegistryEntry;
   enabledLayers: Set<EpistemicLayer>;
   toggleLayer: (layer: EpistemicLayer) => void;
 }) {
-  const graph = useMemo(
-    () => withProvenanceLayers(entry.audit ?? entry.lensed, entry.narrative),
-    [entry]
-  );
+  const graph = useMemo(() => auditGraph(props.entry), [props.entry]);
+  if (plain) {
+    return <SourcesView narrative={props.entry.narrative} graph={graph} />;
+  }
+  return <ModelAuditView {...props} graph={graph} />;
+}
+
+function ModelAuditView({
+  entry,
+  graph,
+  enabledLayers,
+  toggleLayer,
+}: {
+  entry: RegistryEntry;
+  graph: NarrativeGraph;
+  enabledLayers: Set<EpistemicLayer>;
+  toggleLayer: (layer: EpistemicLayer) => void;
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lines, setLines] = useState<EdgeLine[]>([]);
   const [layoutTick, setLayoutTick] = useState(0);
@@ -1533,6 +1672,27 @@ function AuditView({
   );
 }
 
+const MODEL_MODE_KEY = "tcg:model-mode";
+
+/** Story mode is the default; `?mode=model` or a saved choice opens the model. */
+function readModelMode(): boolean {
+  if (typeof window === "undefined") return false;
+  const param = new URLSearchParams(window.location.search).get("mode");
+  if (param) return param === "model";
+  try {
+    return localStorage.getItem(MODEL_MODE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+const REPLAYERS: Partial<Record<NarrativeKey, (events: readonly Event[]) => unknown>> = {};
+
+/** A stable replay function per story, so StoryView can memoize on it. */
+function replayFor(key: NarrativeKey) {
+  return (REPLAYERS[key] ??= (events) => replaySnapshot(key, events));
+}
+
 export default function TuringCompleteGospelWorkbench() {
   const [narrativeKey, setNarrativeKey] =
     useState<NarrativeKey>("good-samaritan");
@@ -1544,6 +1704,16 @@ export default function TuringCompleteGospelWorkbench() {
     new Set(LAYERS)
   );
   const [evaluationStep, setEvaluationStep] = useState<number | null>(null);
+  const [modelMode, setModelModeState] = useState<boolean>(readModelMode);
+
+  function setModelMode(next: boolean) {
+    setModelModeState(next);
+    try {
+      localStorage.setItem(MODEL_MODE_KEY, next ? "1" : "0");
+    } catch {
+      // Storage can be unavailable (private mode); the switch still works.
+    }
+  }
 
   const entry = REGISTRY[narrativeKey];
 
@@ -1569,192 +1739,238 @@ export default function TuringCompleteGospelWorkbench() {
     setReplayIndex(0);
   }
 
-  return (
-    <main
-      style={{
-        maxWidth: 1380,
-        margin: "0 auto",
-        padding: "24px clamp(14px, 3vw, 32px) 48px",
-        color: ink,
-        fontFamily:
-          'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      }}
+  const tabs = (
+    [
+      ["reader", modelMode ? "Reader" : "Story", ICONS.reader],
+      ["structure", modelMode ? "Structure" : "Pattern", ICONS.structure],
+      ["compare", "Compare", ICONS.compare],
+      ["audit", modelMode ? "Audit" : "Sources", ICONS.audit],
+    ] as const
+  ).map(([mode, label, icon]) => (
+    <button
+      type="button"
+      key={mode}
+      role="tab"
+      aria-selected={viewMode === mode}
+      className="tab"
+      onClick={() => setViewMode(mode)}
     >
-      <header style={{ marginBottom: 18 }}>
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 800,
-            letterSpacing: ".09em",
-            color: muted,
-            textTransform: "uppercase",
-          }}
-        >
-          Provenance-aware semantic reasoning workbench
+      {icon}
+      <span>{label}</span>
+    </button>
+  ));
+
+  return (
+    <div className={`app${modelMode ? " app-model" : ""}`}>
+      <header className="topbar">
+        <div className="topbar-brand">
+          <div className="brand-kicker">
+            {modelMode
+              ? "Provenance-aware semantic reasoning workbench"
+              : "Bible study companion"}
+          </div>
+          <h1 className="brand-title">
+            The Turing Complete Gospel of Jesus Christ
+          </h1>
         </div>
-        <h1
-          style={{
-            margin: "5px 0 5px",
-            fontSize: "clamp(25px, 4vw, 38px)",
-            letterSpacing: "-.035em",
-          }}
-        >
-          The Turing Complete Gospel of Jesus Christ
-        </h1>
-        <p style={{ margin: 0, color: muted, maxWidth: 900 }}>
-          Explore how distinct Gospel narratives instantiate a common
-          state-transition grammar while preserving source, authority,
-          interpretation, and application boundaries.
-        </p>
+
+        <div className="topbar-controls">
+          <label className="story-picker">
+            <span className="visually-hidden">Choose a story</span>
+            <select
+              value={narrativeKey}
+              onChange={(e) => changeNarrative(e.target.value as NarrativeKey)}
+            >
+              {ALL_KEYS.map((key) => (
+                <option key={key} value={key}>
+                  {modelMode
+                    ? REGISTRY[key].title
+                    : REGISTRY[key].title.split(" — ")[0]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={modelMode}
+              onChange={(e) => setModelMode(e.target.checked)}
+            />
+            <span className="switch-track" aria-hidden="true" />
+            <span>Show the model</span>
+          </label>
+        </div>
+
+        <nav className="tabs tabs-top" role="tablist" aria-label="Views">
+          {tabs}
+        </nav>
       </header>
 
-      <nav
-        style={{
-          ...panel,
-          padding: 10,
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 10,
-          flexWrap: "wrap",
-          marginBottom: 16,
-        }}
-      >
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {(
-            [
-              ["reader", "Reader"],
-              ["structure", "Structure"],
-              ["compare", "Compare"],
-              ["audit", "Audit"],
-            ] as const
-          ).map(([mode, label]) => (
-            <button
-              type="button"
-              key={mode}
-              onClick={() => setViewMode(mode)}
+      <main className="content">
+        {viewMode === "reader" &&
+          (modelMode ? (
+            <ReaderView
+              entry={entry}
+              replayIndex={replayIndex}
+              setReplayIndex={setReplayIndex}
+            />
+          ) : (
+            <StoryView
+              key={narrativeKey}
+              storyKey={narrativeKey}
+              title={entry.title.split(" — ")[0]}
+              reference={entry.title.split(" — ")[1] ?? ""}
+              narrative={entry.narrative}
+              replay={replayFor(narrativeKey)}
+              step={replayIndex}
+              setStep={setReplayIndex}
+            />
+          ))}
+
+        {viewMode === "structure" && (
+          <StructureView
+            entry={entry}
+            plain={!modelMode}
+            showMathRoles={showMathRoles}
+            setShowMathRoles={setShowMathRoles}
+          />
+        )}
+
+        {viewMode === "compare" && (
+          <CompareView
+            plain={!modelMode}
+            leftKey={narrativeKey}
+            rightKey={
+              compareKey === narrativeKey
+                ? ALL_KEYS.find((key) => key !== narrativeKey)!
+                : compareKey
+            }
+            setRightKey={setCompareKey}
+          />
+        )}
+
+        {viewMode === "audit" && (
+          <AuditView
+            key={narrativeKey}
+            plain={!modelMode}
+            entry={entry}
+            enabledLayers={enabledLayers}
+            toggleLayer={toggleLayer}
+          />
+        )}
+
+        {modelMode && (
+          <section
+            style={{
+              ...panel,
+              padding: 16,
+              marginTop: 18,
+              background: "#fbfcfe",
+            }}
+          >
+            <div
               style={{
-                border: `1px solid ${viewMode === mode ? "#4b648e" : line}`,
-                background: viewMode === mode ? "#eef3fb" : "#fff",
-                borderRadius: 7,
-                padding: "7px 12px",
-                fontWeight: viewMode === mode ? 700 : 500,
+                fontSize: 12,
+                fontWeight: 800,
+                color: muted,
+                letterSpacing: ".07em",
+                textTransform: "uppercase",
               }}
             >
-              {label}
-            </button>
-          ))}
-        </div>
+              Evaluation mode
+            </div>
 
-        <select
-          value={narrativeKey}
-          onChange={(e) => changeNarrative(e.target.value as NarrativeKey)}
-          aria-label="Select Gospel narrative"
-        >
-          {ALL_KEYS.map((key) => (
-            <option key={key} value={key}>
-              {REGISTRY[key].title}
-            </option>
-          ))}
-        </select>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+                gap: 7,
+                marginTop: 10,
+              }}
+              className="tcg-five-column"
+            >
+              {["Provenance", "Replay", "Conflict", "Authority", "Application"].map(
+                (label, index) => (
+                  <button
+                    type="button"
+                    key={label}
+                    onClick={() => setEvaluationStep(index)}
+                    style={{
+                      minHeight: 42,
+                      borderRadius: 7,
+                      border: `1px solid ${
+                        evaluationStep === index ? "#4b648e" : line
+                      }`,
+                      background: evaluationStep === index ? "#eef3fb" : "#fff",
+                      fontWeight: evaluationStep === index ? 700 : 500,
+                    }}
+                  >
+                    {index + 1}. {label}
+                  </button>
+                )
+              )}
+            </div>
+
+            <div
+              style={{
+                marginTop: 10,
+                minHeight: 38,
+                fontSize: 13,
+                color: muted,
+              }}
+            >
+              {evaluationStep === null
+                ? "Choose an evaluation step to surface the question the system should answer."
+                : evaluationMessages[evaluationStep]}
+            </div>
+          </section>
+        )}
+      </main>
+
+      <nav className="tabs tabs-bottom" role="tablist" aria-label="Views">
+        {tabs}
       </nav>
-
-      {viewMode === "reader" && (
-        <ReaderView
-          entry={entry}
-          replayIndex={replayIndex}
-          setReplayIndex={setReplayIndex}
-        />
-      )}
-
-      {viewMode === "structure" && (
-        <StructureView
-          entry={entry}
-          showMathRoles={showMathRoles}
-          setShowMathRoles={setShowMathRoles}
-        />
-      )}
-
-      {viewMode === "compare" && (
-        <CompareView
-          leftKey={narrativeKey}
-          rightKey={compareKey}
-          setRightKey={setCompareKey}
-        />
-      )}
-
-      {viewMode === "audit" && (
-        <AuditView
-          key={narrativeKey}
-          entry={entry}
-          enabledLayers={enabledLayers}
-          toggleLayer={toggleLayer}
-        />
-      )}
-
-      <section
-        style={{
-          ...panel,
-          padding: 16,
-          marginTop: 18,
-          background: "#fbfcfe",
-        }}
-      >
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 800,
-            color: muted,
-            letterSpacing: ".07em",
-            textTransform: "uppercase",
-          }}
-        >
-          Evaluation mode
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-            gap: 7,
-            marginTop: 10,
-          }}
-          className="tcg-five-column"
-        >
-          {["Provenance", "Replay", "Conflict", "Authority", "Application"].map(
-            (label, index) => (
-              <button
-                type="button"
-                key={label}
-                onClick={() => setEvaluationStep(index)}
-                style={{
-                  minHeight: 42,
-                  borderRadius: 7,
-                  border: `1px solid ${
-                    evaluationStep === index ? "#4b648e" : line
-                  }`,
-                  background: evaluationStep === index ? "#eef3fb" : "#fff",
-                  fontWeight: evaluationStep === index ? 700 : 500,
-                }}
-              >
-                {index + 1}. {label}
-              </button>
-            )
-          )}
-        </div>
-
-        <div
-          style={{
-            marginTop: 10,
-            minHeight: 38,
-            fontSize: 13,
-            color: muted,
-          }}
-        >
-          {evaluationStep === null
-            ? "Choose an evaluation step to surface the question the system should answer."
-            : evaluationMessages[evaluationStep]}
-        </div>
-      </section>
-    </main>
+    </div>
   );
 }
+
+const ICON_PROPS = {
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  "aria-hidden": true,
+} as const;
+
+const ICONS = {
+  reader: (
+    <svg {...ICON_PROPS}>
+      <path d="M12 6c-2-1.5-5-2-8-1.5v13c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5v-13c-3-.5-6 0-8 1.5z" />
+      <path d="M12 6v13" />
+    </svg>
+  ),
+  structure: (
+    <svg {...ICON_PROPS}>
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
+      <path d="M7 12h3M14 12h3" />
+    </svg>
+  ),
+  compare: (
+    <svg {...ICON_PROPS}>
+      <rect x="3" y="4" width="7" height="16" rx="1.5" />
+      <rect x="14" y="4" width="7" height="16" rx="1.5" />
+    </svg>
+  ),
+  audit: (
+    <svg {...ICON_PROPS}>
+      <circle cx="12" cy="5" r="2" />
+      <circle cx="12" cy="19" r="2" />
+      <path d="M12 7v10" />
+      <path d="M8 11l4-4 4 4" />
+    </svg>
+  ),
+};
