@@ -55,6 +55,20 @@ The layout is mobile-first: on phones the view tabs and step controls sit at the
 - normative application gate
 - cross-narrative comparison
 
+## Responsibility resolution
+
+`src/responsibility.ts` answers, for any consequential act, two questions a legal system must be able to answer: **under what authority was it performed, and who is responsible?** `resolveResponsibility(act, context)` walks the act's claimed authority back through every delegation (`derivedFrom`) to a recognized source and returns one of five outcomes:
+
+| Outcome | Authority | Responsible |
+|---|---|---|
+| `authorized` | Full chain to a source | The actor and every delegator in the chain |
+| `exceeds-scope` | Valid chain, act outside the granted scope | The actor only |
+| `no-authority` | None claimed | The actor alone |
+| `invalid-chain` | Does not trace to a valid source (R004, R005, R022) | The actor, plus whoever issued the defective grant |
+| `attribution-undetermined` | Whatever the evidence supports | Undetermined: an allegation is not attribution |
+
+`assertTraceable` and `assertAccountable` turn a broken chain or a missing responsible party into a `ModelInvariantError` (R022 *AuthorityChainTraceability*, R023 *ActRequiresResponsibleParty*) where a gap must stop processing. Tests in `src/responsibility.test.ts` use the Talents parable (delegation and accounting) and Mark 5 (the same act with and without authority); run them with `npm test`.
+
 ## Model boundary
 
 Canonical narrative events, extraction, admission, inference, interpretation, and application are intentionally separate. Interpretive or application outputs must not rewrite the admitted event stream.
