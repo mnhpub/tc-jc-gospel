@@ -95,10 +95,15 @@ export interface AuthorityScope {
   readonly targets?: readonly EntityId[];
 }
 
+/**
+ * Authority that is not derived from a grant: the root of an authority
+ * chain. `source` names where it comes from (e.g. "Jesus", or ownership of
+ * the property in the Talents parable).
+ */
 export interface SourceAuthority {
   readonly kind: "source-authority";
   readonly bearer: ActorId;
-  readonly source: "Jesus";
+  readonly source: string;
 }
 
 export interface AuthorityGrant {
@@ -447,7 +452,9 @@ export type InvariantCode =
   | "R018"
   | "R019"
   | "R020"
-  | "R021";
+  | "R021"
+  | "R022"
+  | "R023";
 
 export const INVARIANT_NAMES: Readonly<Record<InvariantCode, string>> = {
   R000: "AuthorityNonEscalation",
@@ -472,6 +479,8 @@ export const INVARIANT_NAMES: Readonly<Record<InvariantCode, string>> = {
   R019: "SuccessDoesNotImplyAuthority",
   R020: "NoLexicalOntologyInjection",
   R021: "NoHiddenInterpretation",
+  R022: "AuthorityChainTraceability",
+  R023: "ActRequiresResponsibleParty",
 };
 
 export class ModelInvariantError extends Error {
@@ -2745,6 +2754,13 @@ export const TALENTS_ASSET_1 = entity("Talents-AssetOne");
 export const TALENTS_AGGREGATE_5 = aggregate("Talents-AggregateFive");
 export const TALENTS_AGGREGATE_2 = aggregate("Talents-AggregateTwo");
 export const TALENTS_AGGREGATE_1 = aggregate("Talents-AggregateOne");
+
+/** The master's own authority over his goods (Matthew 25:14), root of the three grants. */
+export const TALENTS_MASTER_SOURCE_AUTHORITY: SourceAuthority = {
+  kind: "source-authority",
+  bearer: TALENTS_MASTER,
+  source: "owner of the entrusted goods",
+};
 
 export const TALENTS_AUTHORITY_GRANT_5: AuthorityGrant = {
   kind: "authority-grant",
