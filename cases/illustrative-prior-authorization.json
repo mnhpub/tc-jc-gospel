@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "id": "illustrative-prior-authorization",
+  "title": "Illustrative: two prior-authorization denials",
+  "summary": "An invented case. A health plan delegates prior-authorization review to a vendor, which delegates clinical review to a reviewer. One denial follows the chain; one does not. All organizations, people and documents are fictional.",
+  "illustrative": true,
+  "sources": [
+    { "id": "src-member-contract", "kind": "company-document", "title": "Example Health Plan member contract (fictional)" },
+    { "id": "src-review-agreement", "kind": "company-document", "title": "Utilization review agreement between Example Health Plan and Example Review Co. (fictional)" },
+    { "id": "src-denial-letter", "kind": "company-document", "title": "Denial letter for request 1, signed by Clinical Reviewer A (fictional)" },
+    { "id": "src-automated-log", "kind": "company-document", "title": "Example Review Co. automated decision log for request 2 (fictional)" },
+    { "id": "src-news", "kind": "news-report", "title": "Local news report on denial targets (fictional)" }
+  ],
+  "actors": [
+    { "id": "example-health-plan", "label": "Example Health Plan" },
+    { "id": "example-review-co", "label": "Example Review Co." },
+    { "id": "clinical-reviewer-a", "label": "Clinical Reviewer A" }
+  ],
+  "entities": [
+    { "id": "request-1", "label": "Prior-authorization request 1" },
+    { "id": "request-2", "label": "Prior-authorization request 2" }
+  ],
+  "authorities": {
+    "sources": [
+      {
+        "bearer": "example-health-plan",
+        "source": "licensed health plan, under its member contract",
+        "sourceRefs": ["src-member-contract"]
+      }
+    ],
+    "grants": [
+      {
+        "id": "grant-review-vendor",
+        "sourceActor": "example-health-plan",
+        "bearer": "example-review-co",
+        "scope": {
+          "domain": "prior-authorization review",
+          "operations": ["review", "approve", "deny-after-clinical-review"],
+          "targets": ["request-1", "request-2"]
+        },
+        "permissions": ["act", "delegate"],
+        "sourceRefs": ["src-review-agreement"]
+      },
+      {
+        "id": "grant-clinical-reviewer",
+        "sourceActor": "example-review-co",
+        "bearer": "clinical-reviewer-a",
+        "scope": {
+          "domain": "prior-authorization review",
+          "operations": ["review", "approve", "deny-after-clinical-review"],
+          "targets": ["request-1", "request-2"]
+        },
+        "permissions": ["act"],
+        "derivedFrom": "grant-review-vendor",
+        "sourceRefs": ["src-review-agreement"]
+      }
+    ]
+  },
+  "acts": [
+    {
+      "id": "act-reviewed-denial",
+      "description": "Clinical Reviewer A denies request 1 after a clinical review.",
+      "actor": "clinical-reviewer-a",
+      "operation": "deny-after-clinical-review",
+      "target": "request-1",
+      "authority": "grant-clinical-reviewer",
+      "attribution": "established",
+      "consequential": true,
+      "sourceRefs": ["src-denial-letter"]
+    },
+    {
+      "id": "act-automated-denial",
+      "description": "Example Review Co. denies request 2 automatically, with no clinical review.",
+      "actor": "example-review-co",
+      "operation": "deny-without-clinical-review",
+      "target": "request-2",
+      "authority": "grant-review-vendor",
+      "attribution": "established",
+      "consequential": true,
+      "sourceRefs": ["src-automated-log"]
+    },
+    {
+      "id": "act-reported-targets",
+      "description": "A news report says the plan set targets for denials.",
+      "actor": "example-health-plan",
+      "operation": "set-denial-targets",
+      "attribution": "established",
+      "consequential": true,
+      "sourceRefs": ["src-news"]
+    }
+  ],
+  "shape": {
+    "start": "A member needs a procedure that requires prior authorization.",
+    "happens": "The plan's review vendor evaluates two requests.",
+    "response": "One request gets clinical review; the other is denied automatically.",
+    "change": "Both requests are denied.",
+    "end": "One denial traces to a full chain of authority; the other falls outside what was granted."
+  }
+}
