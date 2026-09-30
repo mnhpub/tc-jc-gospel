@@ -73,6 +73,10 @@ The layout is mobile-first: on phones the view tabs and step controls sit at the
 
 Scripture stories are the model's *internal* cases. *External* cases (a claim denial, a court record, a company decision) are written as JSON in `cases/` and loaded with `loadExternalCase` / `loadExternalCases` (`src/externalCase.ts`). The loader validates each case, converts it into model types, and resolves the authority and responsible party of every act, so a broken chain or an unaccountable act loads flagged rather than silently. See [`cases/README.md`](cases/README.md) for the format and an illustrative example.
 
+## Comparison report
+
+`compareCase` (`src/comparison.ts`) lines a loaded external case up against the six scripture models. Each act is classified by outcome and delegation (own authority, one grant, a grant from a grant). The report lists scripture acts with the same pattern, or the same outcome only, and names the outcomes scripture has no counterpart for. It lays the five-step story shapes side by side, and asks questions for each act. It is structural only: it gives no verdicts, and the tests check that none appear. `renderComparisonMarkdown` writes the report as Markdown. The report for the illustrative case is committed at [`cases/reports/`](cases/reports/illustrative-prior-authorization.md), and `npm test` fails if it drifts from the generator (`npx vitest run -u` regenerates it).
+
 ## Model boundary
 
 Canonical narrative events, extraction, admission, inference, interpretation, and application are intentionally separate. Interpretive or application outputs must not rewrite the admitted event stream.
