@@ -4138,7 +4138,10 @@ export function evaluateCommandFulfillment(
     input.executionEvent!.operation === input.command.operation;
 
   const scopeValid =
-    input.command.scope.operations.includes(input.command.operation) &&
+    (
+      !input.command.scope.operations ||
+      input.command.scope.operations.includes(input.command.operation)
+    ) &&
     (
       !input.command.target ||
       !input.command.scope.targets ||

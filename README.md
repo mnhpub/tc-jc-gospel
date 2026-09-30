@@ -17,10 +17,34 @@ Open the local Vite address shown in the terminal.
 npm run build
 ```
 
-## Current features
+## Deploy
+
+`.github/workflows/pages.yml` type-checks and builds every pull request, and publishes the app to GitHub Pages on every push to `main`. To turn publishing on once: **Settings → Pages → Build and deployment → Source: GitHub Actions**. The site then lives at `https://<owner>.github.io/tc-jc-gospel/`.
+
+The build uses relative paths, so `dist/` can also be dropped onto Netlify or any static host as-is.
+
+## Story mode (default)
+
+The app opens in **Story mode**, written for Bible study groups:
+
+- **Story**: step through the passage one moment at a time. Each step shows the verse, what happens in plain words, and what changed ("The traveler · care: no one helping → wounds bandaged").
+- **Pattern**: the story's shape in five plain steps.
+- **Compare**: two stories side by side, step by step.
+- **Sources**: every step traced back to its verse, with readings and takeaways clearly marked as interpretation.
+- **Discussion questions** for each story (look closely → think it through → live it out).
+- **Shareable steps**: the address always holds the story, tab and step (for example `?story=prodigal-son&step=3`), and **Share this step** sends it from a phone's share sheet or copies it.
+- **Dark mode** follows the device setting.
+
+Plain wording lives in `src/plainLanguage.ts`; story summaries and discussion questions live in `src/studyGuide.ts`, so study leaders can edit them without touching the model. Turn on **Show the model** (or open `?mode=model`) for the technical workbench below.
+
+The layout is mobile-first: on phones the view tabs and step controls sit at the bottom in thumb reach; from 720 px the tabs move to the top, and from 900 px the story timeline sits beside the current step.
+
+## Current features (model mode)
 
 - Gospel narrative switching
-- event-stream replay
+- event-stream replay with provenance highlighting (each event lights up the quotation it was admitted from)
+- before/after state diff for every replayed event
+- interactive audit graph: select any node to trace its lineage from verse → extraction → admitted event → rule/authorization → interpretation → application
 - aggregate/state replay snapshots
 - epistemic lanes
 - provenance expansion
