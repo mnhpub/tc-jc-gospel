@@ -17,6 +17,12 @@ Open the local Vite address shown in the terminal.
 npm run build
 ```
 
+## Deploy
+
+`.github/workflows/pages.yml` type-checks and builds every pull request, and publishes the app to GitHub Pages on every push to `main`. To turn publishing on once: **Settings → Pages → Build and deployment → Source: GitHub Actions**. The site then lives at `https://<owner>.github.io/tc-jc-gospel/`.
+
+The build uses relative paths, so `dist/` can also be dropped onto Netlify or any static host as-is.
+
 ## Story mode (default)
 
 The app opens in **Story mode**, written for Bible study groups:
