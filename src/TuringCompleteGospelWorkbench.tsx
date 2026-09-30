@@ -750,10 +750,56 @@ function PatternView({ entry }: { entry: RegistryEntry }) {
           ))}
         </ol>
       </section>
+      {entry.key === "mark-5" && <AuthorityQuestion />}
       <p className="muted small center">
         Open <strong>Compare</strong> to set this story beside another one.
       </p>
     </div>
+  );
+}
+
+/** Story-mode version of the authority experiment, for Mark 5. */
+function AuthorityQuestion() {
+  const [withAuthority, setWithAuthority] = useState(true);
+  const result = evaluateCommandFulfillment({
+    command: COMMAND_TALITHA_KOUM,
+    executionEvent: EVENTS.find((e) => e.operation === "rise"),
+    authorityEnabled: withAuthority,
+  });
+  const fulfilled = result.status === "fulfilled";
+
+  return (
+    <section className="card">
+      <div className="eyebrow">Why does it matter who gives the command?</div>
+      <p>
+        In Mark 5:41–42 Jesus says “Talitha koum”, and the girl gets up. Try
+        taking away his authority and see what changes.
+      </p>
+      <label className="switch">
+        <input
+          type="checkbox"
+          checked={withAuthority}
+          onChange={(e) => setWithAuthority(e.target.checked)}
+        />
+        <span className="switch-track" aria-hidden="true" />
+        <span>Jesus speaks with authority</span>
+      </label>
+      <dl className="verdicts" aria-live="polite">
+        <div className="verdict">
+          <dt>The girl gets up</dt>
+          <dd className="yes">{result.executionObserved ? "Yes" : "No"}</dd>
+        </div>
+        <div className="verdict">
+          <dt>His command is fulfilled</dt>
+          <dd className={fulfilled ? "yes" : "no"}>{fulfilled ? "Yes" : "No"}</dd>
+        </div>
+      </dl>
+      <p className="muted small">
+        {fulfilled
+          ? "His word is obeyed: what he commands and what happens line up."
+          : "She still gets up. The event stays in the story, but it no longer counts as his command being fulfilled. Only the meaning changes."}
+      </p>
+    </section>
   );
 }
 
@@ -1686,6 +1732,68 @@ function readModelMode(): boolean {
   }
 }
 
+const VIEW_MODES: readonly ViewMode[] = ["reader", "structure", "compare", "audit"];
+
+/** Address-bar names for the views, matching Story-mode tab names. */
+const VIEW_PARAMS: Record<ViewMode, string> = {
+  reader: "story",
+  structure: "pattern",
+  compare: "compare",
+  audit: "sources",
+};
+
+interface UrlState {
+  story: NarrativeKey;
+  view: ViewMode;
+  step: number;
+  compare: NarrativeKey;
+}
+
+function isNarrativeKey(value: string | null): value is NarrativeKey {
+  return value !== null && value in REGISTRY;
+}
+
+/** Reads `?story=…&view=…&step=…&with=…`, ignoring anything invalid. */
+function readUrlState(): UrlState {
+  const fallback: UrlState = {
+    story: "good-samaritan",
+    view: "reader",
+    step: 0,
+    compare: "sower",
+  };
+  if (typeof window === "undefined") return fallback;
+  const params = new URLSearchParams(window.location.search);
+  const story = params.get("story");
+  const compare = params.get("with");
+  const viewParam = params.get("view");
+  const view = VIEW_MODES.find(
+    (mode) => VIEW_PARAMS[mode] === viewParam || mode === viewParam
+  );
+  const storyKey = isNarrativeKey(story) ? story : fallback.story;
+  const steps = REGISTRY[storyKey].narrative.events.length;
+  const step = Number.parseInt(params.get("step") ?? "", 10);
+  return {
+    story: storyKey,
+    view: view ?? fallback.view,
+    step: Number.isFinite(step) ? Math.min(Math.max(step, 0), steps) : 0,
+    compare: isNarrativeKey(compare) ? compare : fallback.compare,
+  };
+}
+
+function writeUrlState(state: UrlState & { model: boolean }) {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams();
+  params.set("story", state.story);
+  if (state.view !== "reader") params.set("view", VIEW_PARAMS[state.view]);
+  if (state.step > 0) params.set("step", String(state.step));
+  if (state.view === "compare") params.set("with", state.compare);
+  if (state.model) params.set("mode", "model");
+  const next = `${window.location.pathname}?${params}${window.location.hash}`;
+  if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+    window.history.replaceState(null, "", next);
+  }
+}
+
 const REPLAYERS: Partial<Record<NarrativeKey, (events: readonly Event[]) => unknown>> = {};
 
 /** A stable replay function per story, so StoryView can memoize on it. */
@@ -1694,11 +1802,11 @@ function replayFor(key: NarrativeKey) {
 }
 
 export default function TuringCompleteGospelWorkbench() {
-  const [narrativeKey, setNarrativeKey] =
-    useState<NarrativeKey>("good-samaritan");
-  const [viewMode, setViewMode] = useState<ViewMode>("reader");
-  const [compareKey, setCompareKey] = useState<NarrativeKey>("sower");
-  const [replayIndex, setReplayIndex] = useState(0);
+  const [initial] = useState(readUrlState);
+  const [narrativeKey, setNarrativeKey] = useState<NarrativeKey>(initial.story);
+  const [viewMode, setViewMode] = useState<ViewMode>(initial.view);
+  const [compareKey, setCompareKey] = useState<NarrativeKey>(initial.compare);
+  const [replayIndex, setReplayIndex] = useState(initial.step);
   const [showMathRoles, setShowMathRoles] = useState(false);
   const [enabledLayers, setEnabledLayers] = useState<Set<EpistemicLayer>>(
     new Set(LAYERS)
@@ -1733,6 +1841,18 @@ export default function TuringCompleteGospelWorkbench() {
       return next;
     });
   }
+
+  // Keep the address in step with what is on screen, so a leader can share
+  // a link that opens the same story, view and step.
+  useEffect(() => {
+    writeUrlState({
+      story: narrativeKey,
+      view: viewMode,
+      step: replayIndex,
+      compare: compareKey,
+      model: modelMode,
+    });
+  }, [narrativeKey, viewMode, replayIndex, compareKey, modelMode]);
 
   function changeNarrative(next: NarrativeKey) {
     setNarrativeKey(next);

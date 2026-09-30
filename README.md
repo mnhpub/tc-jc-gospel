@@ -26,6 +26,8 @@ The app opens in **Story mode**, written for Bible study groups:
 - **Compare**: two stories side by side, step by step.
 - **Sources**: every step traced back to its verse, with readings and takeaways clearly marked as interpretation.
 - **Discussion questions** for each story (look closely → think it through → live it out).
+- **Shareable steps**: the address always holds the story, tab and step (for example `?story=prodigal-son&step=3`), and **Share this step** sends it from a phone's share sheet or copies it.
+- **Dark mode** follows the device setting.
 
 Plain wording lives in `src/plainLanguage.ts`; story summaries and discussion questions live in `src/studyGuide.ts`, so study leaders can edit them without touching the model. Turn on **Show the model** (or open `?mode=model`) for the technical workbench below.
 

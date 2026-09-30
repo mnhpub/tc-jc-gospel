@@ -71,6 +71,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
   --accent: #2f5aa8;
   --accent-soft: #e8f0ff;
   --warn: #9a5b12;
+  --ok: #2f7a4b;
   --radius: 14px;
   --tabs-h: 62px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -88,7 +89,28 @@ body { background: var(--bg); color: var(--ink); }
 .small { font-size: 13px; }
 .center { text-align: center; }
 
-.app { min-height: 100vh; }
+.app { min-height: 100vh; background: var(--bg); color: var(--ink); }
+
+/* Dark theme for Story mode. Model mode keeps its light, inline-styled views. */
+@media (prefers-color-scheme: dark) {
+  .app:not(.app-model) {
+    color-scheme: dark;
+    --bg: #11151d;
+    --surface: #1a202c;
+    --soft: #222a38;
+    --ink: #e7ecf4;
+    --muted: #9aa6ba;
+    --faint: #5d687c;
+    --line: #2f3a4d;
+    --accent: #8fb0f0;
+    --accent-soft: #23304a;
+    --warn: #e2ad6a;
+    --ok: #7cc79a;
+  }
+  body:has(.app:not(.app-model)) { background: #11151d; }
+  .app:not(.app-model) .btn-primary { color: #0f1522; }
+  .app:not(.app-model) .dock { box-shadow: 0 -4px 20px rgba(0, 0, 0, .45); }
+}
 
 /* ---------- Top bar ---------- */
 
@@ -275,9 +297,10 @@ body { background: var(--bg); color: var(--ink); }
 .dock-step[aria-current="step"]::after { box-shadow: 0 0 0 2px var(--accent-soft); }
 .dock-step:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
 .dock-label {
-  grid-column: 1 / -1; display: flex; justify-content: space-between;
+  grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 12px;
   font-size: 12px; color: var(--muted);
 }
+.dock-actions { display: flex; gap: 14px; }
 /* Leave room for the dock so the last card isn't hidden behind it. */
 .story { padding-bottom: 96px; }
 
@@ -384,3 +407,17 @@ body { background: var(--bg); color: var(--ink); }
   }
   .story-timeline { position: sticky; top: 16px; }
 }
+
+.verdicts { display: grid; gap: 8px; margin: 12px 0; }
+.verdict {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: 10px; background: var(--soft);
+}
+.verdict dt { font-size: 14px; }
+.verdict dd { margin: 0; font-weight: 800; }
+.verdict .yes { color: var(--ok); }
+.verdict .no { color: var(--warn); }
+
+/* Model mode on phones: let wide tables and lanes scroll inside their own
+   panels instead of stretching the page. Inline min-widths still apply. */
+.app-model .content * { min-width: 0; }

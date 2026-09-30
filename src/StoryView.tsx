@@ -263,11 +263,14 @@ export default function StoryView({
         </button>
         <div className="dock-label">
           {step === 0 ? "Ready to begin" : `Step ${step} of ${total}`}
-          {step > 0 && (
-            <button type="button" className="link" onClick={() => setStep(0)}>
-              Start over
-            </button>
-          )}
+          <span className="dock-actions">
+            <ShareButton step={step} />
+            {step > 0 && (
+              <button type="button" className="link" onClick={() => setStep(0)}>
+                Start over
+              </button>
+            )}
+          </span>
         </div>
       </div>
     </div>
@@ -294,5 +297,32 @@ function GuideSection({
         ))}
       </ul>
     </div>
+  );
+}
+
+/** Shares a link to this exact step (the address bar already holds it). */
+function ShareButton({ step }: { step: number }) {
+  const [copied, setCopied] = useState(false);
+
+  async function share() {
+    const url = window.location.href;
+    const title = document.title;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Share sheet dismissed or clipboard blocked; nothing to do.
+    }
+  }
+
+  return (
+    <button type="button" className="link" onClick={share}>
+      {copied ? "Link copied" : step > 0 ? "Share this step" : "Share"}
+    </button>
   );
 }
